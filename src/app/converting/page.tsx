@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import BottomBar from "../components/BottomBar";
 
 interface FeatureExtractionProgress {
   current: number;
@@ -276,6 +277,7 @@ export default function Converting() {
   
   return (
     <main className="min-h-screen flex items-center justify-center bg-gradient-to-r from-gray-900 to-gray-800">
+      <div className="flex-grow flex items-center justify-center">
       <div className="bg-gray-800 border border-gray-700 backdrop-blur-lg shadow-xl rounded-lg p-10 max-w-md w-full">
         <h1 className="text-4xl font-extrabold text-gray-100 mb-6 text-center">
           {phase === "extraction"
@@ -393,6 +395,8 @@ export default function Converting() {
           </div>
         )}
       </div>
+      </div>
+      <BottomBar />
     </main>
   );
 }

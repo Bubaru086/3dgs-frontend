@@ -15,12 +15,28 @@ export default function Home() {
     }
 
     try {
+      // Create the project
       const response = await axios.post("http://localhost:8000/project/", null, {
         params: { project_name: projectName },
       });
 
       if (response.status === 200) {
-        router.push(`/preprocessing/?project=${projectName}`);
+        // Check project progress
+        const progressResponse = await axios.get("http://localhost:8000/progress/", {
+          params: { project_name: projectName },
+        });
+        const progress = progressResponse.data.progress;
+
+        // Redirect based on the progress
+        if (progress === "rendering") {
+          router.push(`/rendering/?project=${projectName}`);
+        } else if (progress === "training") {
+          router.push(`/training/?project=${projectName}`);
+        } else if (progress === "converting") {
+          router.push(`/converting/?project=${projectName}`);
+        } else {
+          router.push(`/preprocessing/?project=${projectName}`);
+        }
       }
     } catch (err) {
       setError("Error creating project. Try again.");

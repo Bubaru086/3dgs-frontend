@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
 import { useSearchParams, useRouter } from "next/navigation";
+import BottomBar from "../components/BottomBar";
 
 export default function Upload() {
   const searchParams = useSearchParams();
@@ -104,6 +105,7 @@ export default function Upload() {
 
   return (
     <main className="min-h-screen flex items-center justify-center bg-gradient-to-r from-gray-900 to-gray-800">
+      <div className="flex-grow flex items-center justify-center">
       <div className="bg-gray-800 border border-gray-700 backdrop-blur-lg shadow-xl rounded-lg p-10 max-w-md w-full text-center">
         <h1 className="text-4xl font-extrabold mb-4 text-gray-100">
           Upload a Video for "{projectName}"
@@ -223,6 +225,8 @@ export default function Upload() {
           </div>
         </div>
       )}
+      </div>
+      <BottomBar />
     </main>
   );
 }

@@ -4,6 +4,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import * as THREE from "three";
 import { PLYLoader } from "three/examples/jsm/loaders/PLYLoader.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import BottomBar from "../components/BottomBar";
 
 export default function TrainingAndViewing() {
   const searchParams = useSearchParams();
@@ -256,6 +257,7 @@ export default function TrainingAndViewing() {
   // In the training UI (before PLY is loaded), replace the dropdown with a slider.
   return (
     <main className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-r from-gray-900 to-gray-800">
+      <div className="flex-grow flex items-center justify-center">
       <div className="bg-gray-800 border border-gray-700 backdrop-blur-lg shadow-xl rounded-lg p-10 max-w-md w-full text-center">
         <h1 className="text-4xl font-extrabold mb-4 text-gray-100">
           Train and View Project "{projectName}"
@@ -288,6 +290,8 @@ export default function TrainingAndViewing() {
         </div>
         {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
       </div>
+      </div>
+      <BottomBar />
     </main>
   );  
 }

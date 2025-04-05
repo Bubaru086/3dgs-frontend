@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as SPLAT from "gsplat";
 import { useSearchParams } from "next/navigation";
+import BottomBar from "../components/BottomBar";
 
 export default function SplatPage() {
   const searchParams = useSearchParams();
@@ -340,6 +341,7 @@ export default function SplatPage() {
 
   return (
     <main className="min-h-screen bg-gradient-to-r from-gray-900 to-gray-800 relative">
+      <div className="flex-grow flex items-center justify-center">
       <div ref={containerRef} className="w-full h-full relative">
         {/* Overlay canvas */}
         <canvas
@@ -614,6 +616,8 @@ export default function SplatPage() {
           </svg>
         </div>
       )}
+      </div>
+      <BottomBar />
     </main>
   );  
 }
