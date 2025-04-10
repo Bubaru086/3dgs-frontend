@@ -34,8 +34,6 @@ export default function Converting() {
   const searchParams = useSearchParams();
   const projectName = searchParams.get("project") || "";
   
-  const [phase, setPhase] = useState<"extraction" | "matching" | "undistortion">("extraction");
-
   const [featureExtractionProgress, setFeatureExtractionProgress] = useState<FeatureExtractionProgress>({
     current: 0,
     total: 0,
@@ -45,28 +43,20 @@ export default function Converting() {
     focalLength: "",
     features: ""
   });
-  
   const [featureMatchingProgress, setFeatureMatchingProgress] = useState<FeatureMatchingProgress>({
     currentStep: 0,
     totalSteps: 0,
     matchedIn: ""
   });
-  
   const [incrementalProgress, setIncrementalProgress] = useState<IncrementalPipelineProgress>({
     count: 0,
     imageId: 0,
     points: ""
   });
-  
   const [undistortionProgress, setUndistortionProgress] = useState<UndistortionProgress>({
     current: 0,
-    total: 0,
+    total: 0
   });
-  
-  // Flags to decide whether to show each step's UI (they persist once shown)
-  const [showExtraction, setShowExtraction] = useState(false);
-  const [showMatching, setShowMatching] = useState(false);
-  const [showUndistortion, setShowUndistortion] = useState(false);
   
   const [isConverting, setIsConverting] = useState(false);
   const [error, setError] = useState("");
@@ -84,8 +74,8 @@ export default function Converting() {
       return;
     }
     setIsConverting(true);
-    setPhase("extraction");
-    // Reset progress and flags.
+    
+    // Reset progress values.
     setFeatureExtractionProgress({
       current: 0,
       total: 0,
@@ -110,10 +100,6 @@ export default function Converting() {
       total: 0
     });
     setError("");
-    // Reset all show flags so nothing is visible until events are received.
-    setShowExtraction(false);
-    setShowMatching(false);
-    setShowUndistortion(false);
   
     const eventSource = new EventSource(`http://localhost:8000/convert/?project_name=${projectName}`);
   
@@ -128,30 +114,22 @@ export default function Converting() {
       lines.forEach((line: string) => {
         // --- Undistortion logs ---
         if (/Undistorting image/i.test(line)) {
-          if (phase !== "undistortion") {
-            setPhase("undistortion");
-            setShowUndistortion(true);
-          }
           const match = line.match(/Undistorting image\s+\[(\d+)\/(\d+)\]/i);
           if (match) {
             setUndistortionProgress({
-              current: parseInt(match[1]),
-              total: parseInt(match[2])
+              current: parseInt(match[1], 10),
+              total: parseInt(match[2], 10)
             });
           }
         }
         // --- Matching block logs ---
         else if (/Matching block/i.test(line)) {
-          if (phase === "extraction") {
-            setPhase("matching");
-            setShowMatching(true);
-          }
           const match = line.match(/Matching block \[(\d+)\/(\d+),\s*(\d+)\/(\d+)\]/i);
           if (match) {
-            const firstNum = parseInt(match[1]);
-            const firstDenom = parseInt(match[2]);
-            const secondNum = parseInt(match[3]);
-            const secondDenom = parseInt(match[4]);
+            const firstNum = parseInt(match[1], 10);
+            const firstDenom = parseInt(match[2], 10);
+            const secondNum = parseInt(match[3], 10);
+            const secondDenom = parseInt(match[4], 10);
             const currentStep = (firstNum - 1) * firstDenom + secondNum;
             const totalSteps = firstDenom * secondDenom;
             setFeatureMatchingProgress(prev => ({
@@ -171,12 +149,12 @@ export default function Converting() {
             }));
           }
         }
-        // --- Incremental Pipeline logs (still in matching phase) ---
+        // --- Incremental Pipeline logs (during matching) ---
         else if (/Registering image/i.test(line)) {
           const match = line.match(/Registering image\s+#(\d+)\s+\((\d+)\)/i);
           if (match) {
-            const imageId = parseInt(match[1]);
-            const count = parseInt(match[2]);
+            const imageId = parseInt(match[1], 10);
+            const count = parseInt(match[2], 10);
             setIncrementalProgress(prev => ({
               ...prev,
               imageId,
@@ -194,15 +172,13 @@ export default function Converting() {
         }
         // --- Extraction logs ---
         else {
-          // We consider any extraction log to be part of extraction phase.
-          if (!showExtraction) setShowExtraction(true);
           if (/Processed file/i.test(line)) {
             const match = line.match(/Processed file \[(\d+)\/(\d+)\]/i);
             if (match) {
               setFeatureExtractionProgress(prev => ({
                 ...prev,
-                current: parseInt(match[1]),
-                total: parseInt(match[2])
+                current: parseInt(match[1], 10),
+                total: parseInt(match[2], 10)
               }));
             }
           } else if (/Name:\s*(.*)/i.test(line)) {
@@ -257,8 +233,7 @@ export default function Converting() {
       setIsConverting(false);
     };
   };
-  
-  // Calculate progress percentages.
+
   const extractionPercentage = featureExtractionProgress.total
     ? Math.round((featureExtractionProgress.current / featureExtractionProgress.total) * 100)
     : 0;
@@ -276,125 +251,126 @@ export default function Converting() {
     : 0;
   
   return (
-    <main className="min-h-screen flex items-center justify-center bg-gradient-to-r from-gray-900 to-gray-800">
-      <div className="flex-grow flex items-center justify-center">
-      <div className="bg-gray-800 border border-gray-700 backdrop-blur-lg shadow-xl rounded-lg p-10 max-w-md w-full">
-        <h1 className="text-4xl font-extrabold text-gray-100 mb-6 text-center">
-          {phase === "extraction"
-            ? `Convert Project "${projectName}"`
-            : phase === "matching"
-            ? "Generating exhaustive image pairs..."
-            : "Image Undistortion"}
-        </h1>
-        <button
-          onClick={handleConvert}
-          disabled={isConverting}
-          className="w-full py-3 px-4 bg-gray-700 text-gray-100 font-semibold rounded-lg shadow-md hover:bg-gray-600 transition-all duration-300 transform hover:-translate-y-1"
-        >
-          {isConverting ? "Converting..." : "Start Conversion"}
-        </button>
-        {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
-        
-        {/* Extraction Progress */}
-        {showExtraction && (
-          <>
-            <div className="bg-gray-700 border border-gray-600 p-4 rounded-lg shadow-md mt-6">
-              <div className="mb-2 text-sm font-medium text-gray-100">
-                Feature Extraction Progress
-              </div>
-              <div className="w-full bg-gray-600 rounded-full h-4">
+    <main className="min-h-screen bg-black text-white font-mono">
+      <header className="flex items-center px-4 py-3 border-b border-white bg-black">
+        <img src="/logo-small.png" alt="Logo" className="h-10 w-auto mr-4" />
+        <h1 className="text-xl font-bold">{projectName}</h1>
+      </header>
+      <div className="flex flex-col items-center justify-center px-4 py-24">
+        <div className="w-full max-w-6xl">
+          <div className="mb-12 text-center">
+            <h2 className="text-5xl font-bold uppercase tracking-wide my-6">
+              converting
+            </h2>
+          </div>
+
+          <div className="w-full border border-white bg-black p-4 rounded mt-6">
+            <div className="mt-2">
+              <p className="mb-2 text-sm font-medium">Feature Extraction Progress</p>
+              <div className="w-full border border-white bg-black h-6">
                 <div
-                  className="bg-green-500 h-4 rounded-full transition-all duration-300"
-                  style={{ width: `${extractionPercentage}%` }}
+                  className="h-full"
+                  style={{ width: `${extractionPercentage}%`, backgroundColor: "white" }}
                 ></div>
               </div>
-              <div className="text-sm font-medium text-gray-100 mt-1 text-center">
+              <p className="text-sm font-medium mt-1 text-center">
                 {featureExtractionProgress.current} of {featureExtractionProgress.total} ({extractionPercentage}%)
-              </div>
+              </p>
             </div>
-            {matchingPercentage === 0 && (
-              <div className="bg-gray-700 border border-gray-600 p-4 rounded-lg shadow-md mt-4">
-                <p className="mb-1 text-gray-100"><strong>Name:</strong> {featureExtractionProgress.name || "N/A"}</p>
-                <p className="mb-1 text-gray-100"><strong>Dimensions:</strong> {featureExtractionProgress.dimensions || "N/A"}</p>
-                <p className="mb-1 text-gray-100"><strong>Camera:</strong> {featureExtractionProgress.camera || "N/A"}</p>
-                <p className="mb-1 text-gray-100"><strong>Focal Length:</strong> {featureExtractionProgress.focalLength || "N/A"}</p>
-                <p className="mb-1 text-gray-100"><strong>Features:</strong> {featureExtractionProgress.features || "N/A"}</p>
-              </div>
-            )}
-          </>
-        )}
-        
-        {/* Matching Progress */}
-        {showMatching && (
-          <>
-            <div className="bg-gray-700 border border-gray-600 p-4 rounded-lg shadow-md mt-6">
-              <div className="mb-2 text-sm font-medium text-gray-100">
-                Matching Block Progress
-              </div>
-              <div className="w-full bg-gray-600 rounded-full h-4">
+
+            <div className="mt-4">
+              <p className="mb-2 text-sm font-medium">Matching Block Progress</p>
+              <div className="w-full border border-white bg-black h-6">
                 <div
-                  className="bg-blue-500 h-4 rounded-full transition-all duration-300"
-                  style={{ width: `${matchingPercentage}%` }}
+                  className="h-full"
+                  style={{ width: `${matchingPercentage}%`, backgroundColor: "white" }}
                 ></div>
               </div>
-              <div className="text-sm font-medium text-gray-100 mt-1 text-center">
+              <p className="text-sm font-medium mt-1 text-center">
                 {featureMatchingProgress.currentStep} of {featureMatchingProgress.totalSteps} ({matchingPercentage}%)
-              </div>
+              </p>
             </div>
-            {featureMatchingProgress.matchedIn && incrementalPercentage === 0 && (
-              <div className="bg-gray-700 border border-gray-600 p-4 rounded-lg shadow-md mt-4">
-                <p className="mb-1 text-gray-100"><strong>Matched in:</strong> {featureMatchingProgress.matchedIn}</p>
+
+            <div className="mt-4">
+              <p className="text-sm font-medium">Incremental Pipeline Progress</p>
+              <div className="w-full border border-white bg-black h-6">
+                <div
+                  className="h-full"
+                  style={{ width: `${incrementalPercentage}%`, backgroundColor: "white" }}
+                ></div>
               </div>
-            )}
-            {incrementalProgress.count > 0 && (
-              <>
-                <div className="bg-gray-700 border border-gray-600 p-4 rounded-lg shadow-md mt-4">
-                  <div className="mb-2 text-sm font-medium text-gray-100">
-                    Incremental Pipeline Progress
+              <p className="text-sm font-medium mt-1 text-center">
+                {incrementalProgress.count} of {featureExtractionProgress.total} ({incrementalPercentage}%)
+              </p>
+            </div>
+
+            <div className="mt-4">
+              <p className="mb-2 text-sm font-medium">Image Undistortion Progress</p>
+              <div className="w-full border border-white bg-black h-6">
+                <div
+                  className="h-full"
+                  style={{ width: `${undistortionPercentage}%`, backgroundColor: "white" }}
+                ></div>
+              </div>
+              <p className="text-sm font-medium mt-1 text-center">
+                {undistortionProgress.current} of {undistortionProgress.total} ({undistortionPercentage}%)
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-col items-center justify-center mt-12">
+            {!isConverting ? (
+              <button
+                onClick={handleConvert}
+                disabled={isConverting}
+                className="w-full md:w-1/2 py-3 px-4 border border-white rounded cursor-pointer hover:bg-white hover:text-black hover:-translate-y-1 transition"
+              >
+                Start Conversion
+              </button>
+            ) : (
+              <div className="w-full md:w-1/2 border border-white bg-black rounded p-4 text-center">
+                {matchingPercentage === 0 && featureExtractionProgress.current !== 0 ? (
+                  <div className="grid grid-cols-2 gap-y-2 gap-x-4">
+                    <p className="text-sm">
+                      <strong>Name:</strong> {featureExtractionProgress.name || "N/A"}
+                    </p>
+                    <p className="text-sm">
+                      <strong>Dimensions:</strong> {featureExtractionProgress.dimensions || "N/A"}
+                    </p>
+                    <p className="text-sm">
+                      <strong>Features:</strong> {featureExtractionProgress.features || "N/A"}
+                    </p>
+                    <p className="text-sm">
+                      <strong>Focal Length:</strong> {featureExtractionProgress.focalLength || "N/A"}
+                    </p>
                   </div>
-                  <div className="w-full bg-gray-600 rounded-full h-4">
-                    <div
-                      className="bg-yellow-500 h-4 rounded-full transition-all duration-300"
-                      style={{ width: `${incrementalPercentage}%` }}
-                    ></div>
+                ) : featureMatchingProgress.matchedIn && incrementalPercentage === 0 ? (
+                  <div>
+                    <p className="text-sm">
+                      <strong>Matched in:</strong> {featureMatchingProgress.matchedIn}
+                    </p>
                   </div>
-                  <div className="text-sm font-medium text-gray-100 mt-1 text-center">
-                    {incrementalProgress.count} of {featureExtractionProgress.total} ({incrementalPercentage}%)
-                  </div>
-                </div>
-                {undistortionPercentage === 0 && (
-                  <div className="bg-gray-700 border border-gray-600 p-4 rounded-lg shadow-md mt-4">
-                    <p className="mb-1 text-gray-100">
+                ) : undistortionPercentage === 0 && incrementalProgress.points ? (
+                  <div className="space-y-2">
+                    <p className="text-sm">
                       <strong>Registering image:</strong> {incrementalProgress.imageId ? `#${incrementalProgress.imageId}` : "N/A"}
                     </p>
-                    <p className="mb-1 text-gray-100">
+                    <p className="text-sm">
                       <strong>Image sees:</strong> {incrementalProgress.points ? `${incrementalProgress.points} points` : "N/A"}
                     </p>
                   </div>
+                ) : (
+                  <div>
+                    <p className="text-sm">
+                      <strong>Processing...</strong>
+                    </p>
+                  </div>
                 )}
-              </>
+              </div>
             )}
-          </>
-        )}
-        
-        {/* Undistortion Progress */}
-        {showUndistortion && (
-          <div className="bg-gray-700 border border-gray-600 p-4 rounded-lg shadow-md mt-6">
-            <div className="mb-2 text-sm font-medium text-gray-100">
-              Image Undistortion Progress
-            </div>
-            <div className="w-full bg-gray-600 rounded-full h-4">
-              <div
-                className="bg-red-500 h-4 rounded-full transition-all duration-300"
-                style={{ width: `${undistortionPercentage}%` }}
-              ></div>
-            </div>
-            <div className="text-sm font-medium text-gray-100 mt-1 text-center">
-              {undistortionProgress.current} of {undistortionProgress.total} ({undistortionPercentage}%)
-            </div>
+            {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
           </div>
-        )}
-      </div>
+        </div>
       </div>
       <BottomBar />
     </main>

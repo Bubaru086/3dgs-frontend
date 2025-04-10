@@ -16,48 +16,70 @@ export default function Viewing() {
   const sceneRef = useRef<THREE.Scene | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
-  const controlsRef = useRef<OrbitControls | null>(null);  
+  const controlsRef = useRef<OrbitControls | null>(null);
 
-  // Initialize scene, camera, renderer, and controls
+  // Initialize scene, camera, renderer, controls and load camera markers
   useEffect(() => {
     if (!containerRef.current) return;
-    
+
     // Create scene
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x000000);
     sceneRef.current = scene;
-    
+
     // Create camera
     const width = containerRef.current.clientWidth;
     const height = containerRef.current.clientHeight;
     const camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
     camera.position.set(0, 0, 2);
     cameraRef.current = camera;
-    
+
     // Create renderer
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(width, height);
     rendererRef.current = renderer;
     containerRef.current.appendChild(renderer.domElement);
-    
+
     // Add orbit controls for user navigation
     const controls = new OrbitControls(camera, renderer.domElement);
-
-    // Enable damping for smoother transitions
     controls.enableDamping = true;
     controls.dampingFactor = 0.1;
-
-    // Set zoom constraints
     controls.enableZoom = true;
     controls.minDistance = 0.5;
     controls.maxDistance = 50;
-
     controlsRef.current = controls;
-    
+
     // Add a basic ambient light
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
     scene.add(ambientLight);
-    
+
+    // Function to load and add camera markers (red spheres)
+    const loadCameras = async () => {
+      try {
+        const response = await fetch(`http://localhost:8000/cameras/${projectName}`);
+        if (!response.ok) {
+          throw new Error("Failed to fetch cameras data");
+        }
+        const cameras = await response.json();
+        const rotationMatrix = new THREE.Matrix4().makeRotationX(Math.PI);
+        cameras.forEach((cam: { position: number[] }) => {
+          const position = new THREE.Vector3(...cam.position);
+          position.applyMatrix4(rotationMatrix);
+          // Create a small red sphere for each camera position
+          const dotGeometry = new THREE.SphereGeometry(0.02, 16, 16);
+          const dotMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+          const dot = new THREE.Mesh(dotGeometry, dotMaterial);
+          dot.position.copy(position);
+          scene.add(dot);
+        });
+      } catch (error) {
+        console.error("Error loading cameras:", error);
+      }
+    };
+
+    // Call loadCameras to add camera markers
+    loadCameras();
+
     // Animation loop
     const animate = () => {
       requestAnimationFrame(animate);
@@ -65,7 +87,7 @@ export default function Viewing() {
       renderer.render(scene, camera);
     };
     animate();
-    
+
     // Handle window resize
     const handleResize = () => {
       if (containerRef.current && rendererRef.current && cameraRef.current) {
@@ -77,27 +99,27 @@ export default function Viewing() {
       }
     };
     window.addEventListener("resize", handleResize);
-    
+
     return () => {
       window.removeEventListener("resize", handleResize);
       renderer.dispose();
       controls.dispose();
     };
-  }, []);
+  }, [projectName]);
 
   useEffect(() => {
     if (!projectName) {
       window.location.href = "/";
     }
   }, [projectName]);
-  
+
   // Fetch the PLY file from the backend on component mount
   useEffect(() => {
     const fetchPlyFile = async () => {
-        if (!projectName) {
-            setError("Project name is missing.");
-            return;
-          }
+      if (!projectName) {
+        setError("Project name is missing.");
+        return;
+      }
       try {
         const response = await fetch("http://localhost:8000/ply/" + projectName);
         if (!response.ok) {
@@ -113,13 +135,13 @@ export default function Viewing() {
     };
 
     fetchPlyFile();
-  }, []);
+  }, [projectName]);
 
   // Load the fetched PLY file when plyFile state changes
   useEffect(() => {
     if (!plyFile || !sceneRef.current) return;
     setError("");
-    
+
     // Create a URL for the file and load it with PLYLoader
     const url = URL.createObjectURL(plyFile);
     const loader = new PLYLoader();
@@ -127,8 +149,7 @@ export default function Viewing() {
       url,
       (geometry) => {
         geometry.computeVertexNormals();
-        //geometry.computeBoundingBox();
-        //geometry.center();
+        geometry.applyMatrix4(new THREE.Matrix4().makeRotationX(Math.PI));
         const material = new THREE.PointsMaterial({ color: 0xffffff, size: 0.01 });
         const points = new THREE.Points(geometry, material);
         sceneRef.current?.add(points);

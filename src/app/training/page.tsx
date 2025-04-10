@@ -134,6 +134,7 @@ export default function TrainingAndViewing() {
       url,
       (geometry) => {
         geometry.computeVertexNormals();
+        geometry.applyMatrix4(new THREE.Matrix4().makeRotationX(Math.PI));
         const material = new THREE.PointsMaterial({ color: 0xffffff, size: 0.01 });
         const points = new THREE.Points(geometry, material);
         sceneRef.current?.add(points);
@@ -176,13 +177,15 @@ export default function TrainingAndViewing() {
         throw new Error("Failed to fetch cameras data");
       }
       const cameras = await response.json();
+      const rotationMatrix = new THREE.Matrix4().makeRotationX(Math.PI);
       cameras.forEach((cam: { position: number[] }) => {
-        const [x, y, z] = cam.position;
+        const position = new THREE.Vector3(...cam.position);
+        position.applyMatrix4(rotationMatrix);
         // Create a small red sphere for each camera
         const dotGeometry = new THREE.SphereGeometry(0.02, 16, 16);
         const dotMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
         const dot = new THREE.Mesh(dotGeometry, dotMaterial);
-        dot.position.set(x, y, z);
+        dot.position.copy(position);
         sceneRef.current?.add(dot);
       });
     } catch (error) {
@@ -207,7 +210,6 @@ export default function TrainingAndViewing() {
       if (event.data.includes("Training completed successfully")) {
         trainEventSource.close();
         setIsTraining(false);
-        // (Rest of your success handling remains unchanged)
         router.push(`/rendering/?project=${projectName}`);
         return;
       }
@@ -236,62 +238,141 @@ export default function TrainingAndViewing() {
     };
   };
 
-  // When ply is loaded, render a full-page viewer that hides everything else,
-  // except for the progress messages at the bottom.
+  // When the PLY file is loaded, render the full-page viewer using the same layout
   if (plyLoaded && showViewer) {
     return (
-      <div className="relative h-screen w-screen">
-        <div className="absolute inset-0" ref={containerRef}></div>
-        <div className="absolute bottom-0 left-0 right-0 p-4 bg-black bg-opacity-50">
-        {progressTotal > 0 && (
-          <div className="flex justify-center">
-            <progress value={progressCurrent} max={progressTotal} className="w-1/2"></progress>
+      <main className="min-h-screen bg-black text-white font-mono flex flex-col">
+        <header className="flex items-center px-4 py-3 border-b border-white bg-black">
+          <img src="/logo-small.png" alt="Logo" className="h-10 w-auto mr-4" />
+          <h1 className="text-xl font-bold">{projectName}</h1>
+        </header>
+        <div className="flex-grow relative">
+          {/* THREE.js Canvas container */}
+          <div className="absolute inset-0" ref={containerRef}></div>
+          
+          {/* New overlay for "Training" text */}
+          <div className="absolute top-0 left-0 right-0 p-4 text-center pointer-events-none">
+            <h2 className="text-5xl font-bold uppercase tracking-wide text-white">
+              {progressCurrent == progressTotal ? (
+                "preparing"
+              ) : (
+                "training"
+              )}
+            </h2>
           </div>
-        )}
-        </div>
-      </div>
-    );
-  }
 
-  // Before the PLY file is loaded, show the training UI (without the three.js viewer)
-  // In the training UI (before PLY is loaded), replace the dropdown with a slider.
-  return (
-    <main className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-r from-gray-900 to-gray-800">
-      <div className="flex-grow flex items-center justify-center">
-      <div className="bg-gray-800 border border-gray-700 backdrop-blur-lg shadow-xl rounded-lg p-10 max-w-md w-full text-center">
-        <h1 className="text-4xl font-extrabold mb-4 text-gray-100">
-          Train and View Project "{projectName}"
-        </h1>
-        <div className="flex flex-col items-center space-y-4">
-          <label className="block text-sm font-medium text-gray-100">Resolution Percentage</label>
-          <input
-            type="range"
-            min="1"
-            max="100"
-            value={resolutionPercent}
-            onChange={(e) => setResolutionPercent(Number(e.target.value))}
-            className="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-500 transition"
-          />
-          <p className="text-gray-100">
-            Training Resolution:{" "}
-            {originalResolution.width && originalResolution.height
-              ? `${Math.round(originalResolution.width * (resolutionPercent / 100))} x ${Math.round(
-                  originalResolution.height * (resolutionPercent / 100)
-                )}`
-              : "Loading..."}
-          </p>
-          <button
-            className="w-full py-3 px-4 bg-green-500 text-white font-semibold rounded-lg shadow-md hover:bg-green-700 transition-all duration-300 transform hover:-translate-y-1"
-            onClick={handleTrain}
-            disabled={isTraining}
+          {progressCurrent == progressTotal && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center" style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }}>
+              <div className="w-16 h-16 bg-white animate-spin"></div>
+            </div>
+          )}
+          
+          {/* Progress bar at the bottom */}
+          <div
+            className="absolute left-0 right-0 p-4"
+            style={{ bottom: "4rem", zIndex: 10 }}
           >
-            {isTraining ? "Starting..." : "Start Training"}
-          </button>
+            {progressTotal > 0 && (
+              <div className="flex items-center justify-center space-x-2">
+                <span className="text-white">
+                  {Math.round((progressCurrent / progressTotal) * 100)}%
+                </span>
+                <progress value={progressCurrent} max={progressTotal} className="w-1/2"></progress>
+                <span className="text-white">
+                  {progressCurrent}/{progressTotal}
+                </span>
+              </div>
+            )}
+          </div>
         </div>
-        {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
-      </div>
+        <BottomBar />
+      </main>
+    );
+  }  
+
+  // Before the PLY file is loaded, show the training UI with the matching layout and styling
+  return (
+    <main className="min-h-screen bg-black text-white font-mono flex flex-col">
+      <header className="flex items-center px-4 py-3 border-b border-white bg-black">
+        <img src="/logo-small.png" alt="Logo" className="h-10 w-auto mr-4" />
+        <h1 className="text-xl font-bold">{projectName}</h1>
+      </header>
+      <div className="flex-col flex items-center justify-center px-4 py-48">
+        <div className="w-full max-w-6xl">
+          <div className="mb-12 text-center">
+            <h2 className="text-5xl font-bold uppercase tracking-wide my-6">
+              training
+            </h2>
+          </div>
+          <div className="w-full bg-black p-4 mt-6">
+            <div className="flex flex-col items-center space-y-4">
+              <div className="relative w-full md:w-3/4 mt-6">
+                <input
+                  type="range"
+                  min="1"
+                  max="100"
+                  value={resolutionPercent}
+                  disabled={isTraining}
+                  onChange={(e) => setResolutionPercent(Number(e.target.value))}
+                  className="w-full fps-slider"
+                />
+                <span
+                  className="absolute -top-6 text-white text-sm"
+                  style={{
+                    left: `${resolutionPercent}%`,
+                    transform: "translateX(-50%)",
+                  }}
+                >
+                  {resolutionPercent}%
+                </span>
+              </div>
+              <p>
+                Training Resolution:{" "}
+                {originalResolution.width && originalResolution.height
+                  ? `${Math.round(originalResolution.width * (resolutionPercent / 100))} x ${Math.round(
+                      originalResolution.height * (resolutionPercent / 100)
+                    )}`
+                  : "Loading..."}
+              </p>
+              <style jsx>{`
+                /* Style the slider track */
+                input[type='range'].fps-slider {
+                  -webkit-appearance: none;
+                  width: 100%;
+                  height: 8px;
+                  background: white;
+                  outline: none;
+                  border-radius: 0;
+                  margin: 10px 0;
+                }
+                                    
+                /* Custom thumb styling for Webkit browsers */
+                input[type='range'].fps-slider::-webkit-slider-thumb {
+                  -webkit-appearance: none;
+                  width: 16px;
+                  height: 16px;
+                  background: white;
+                  border: 2px solid black;
+                  border-radius: 0;
+                  cursor: pointer;
+                  margin-top: -4px;
+                }
+              `}</style>
+            </div>
+            {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
+          </div>
+          <div className="flex flex-col items-center justify-center mt-12">
+            <button
+              className="w-full md:w-1/2 py-3 px-4 border border-white rounded cursor-pointer hover:bg-white hover:text-black hover:-translate-y-1 transition"
+              onClick={handleTrain}
+              disabled={isTraining}
+            >
+              {isTraining ? "Loading..." : "Start Training"}
+            </button>
+          </div>
+        </div>
       </div>
       <BottomBar />
     </main>
-  );  
+  );
 }

@@ -44,24 +44,36 @@ export default function Home() {
   };
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-gradient-to-r from-gray-900 to-gray-800">
-      <div className="bg-gray-800 border border-gray-700 backdrop-blur-lg shadow-xl rounded-lg p-10 max-w-md w-full text-center">
-        <h1 className="text-4xl font-extrabold mb-4 text-gray-100">
-          Create Your 3DGS
-        </h1>
+    <main className="min-h-screen flex flex-col items-center justify-center bg-black">
+      <div className="flex flex-col items-center space-y-8">
+        {/* Logo Image */}
+        <img src="/logo.png" alt="Logo" className="w-150 h-auto" />
+
+        <hr></hr>
+
+        {/* Title and Slogan */}
+        <p className="text-lg text-white font-mono">
+          Bring your videos to life with 3D Gaussian Splatting!
+        </p>
+
+        {/* Input with CMD prompt look */}
         <input
           type="text"
-          placeholder="Project Name"
+          placeholder="Enter Project Name"
           value={projectName}
           onChange={(e) => setProjectName(e.target.value)}
-          className="w-full p-3 mb-4 bg-gray-700 border border-gray-600 rounded-lg text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 transition"
+          className="w-64 p-3 bg-black text-white font-mono rounded focus:outline-none text-center"
         />
+
+        {/* Start Project Button */}
         <button
           onClick={handleCreateProject}
-          className="w-full py-3 px-4 bg-gray-700 text-gray-100 font-semibold rounded-lg shadow-md hover:bg-gray-600 transition-all duration-300 transform hover:-translate-y-1"
+          className="w-64 p-3 bg-black text-white font-bold font-mono border border-white py-2 rounded cursor-pointer hover:bg-white hover:text-black hover:-translate-y-1 transition-all duration-300"
         >
           Start Project
         </button>
+
+        {/* Error message */}
         {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
       </div>
     </main>

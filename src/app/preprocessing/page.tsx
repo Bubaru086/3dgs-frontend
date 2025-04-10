@@ -10,12 +10,12 @@ export default function Upload() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [videoURL, setVideoURL] = useState<string | null>(null);
   const [metadata, setMetadata] = useState<any>(null);
-  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
-  const [extractionProgress, setExtractionProgress] = useState<number>(0);
+  const [progress, setProgress] = useState<number | null>(null);
   const fpsValues = [0.1, 0.25, 0.5, 1, 2, 4, 10];
   const [fpsIndex, setFpsIndex] = useState<number>(3);
   const [isExtracting, setIsExtracting] = useState<boolean>(false);
   const [extractionSuccess, setExtractionSuccess] = useState<boolean>(false);
+  const [isUploading, setIsUploading] = useState<boolean>(false); // New state for uploading
   const router = useRouter();
 
   useEffect(() => {
@@ -48,6 +48,8 @@ export default function Upload() {
 
     const formData = new FormData();
     formData.append("file", selectedFile);
+    setProgress(0);
+    setIsUploading(true); // Start upload
 
     try {
       const response = await axios.post(
@@ -57,19 +59,20 @@ export default function Upload() {
           headers: { "Content-Type": "multipart/form-data" },
           onUploadProgress: (progressEvent) => {
             if (progressEvent.total) {
-              setUploadProgress(
+              setProgress(
                 Math.round((progressEvent.loaded * 100) / progressEvent.total)
               );
             }
           },
         }
       );
-
       setMetadata(response.data);
-      setUploadProgress(null);
+      setProgress(null);
     } catch (error) {
       console.error("Error uploading file:", error);
-      setUploadProgress(null);
+      setProgress(null);
+    } finally {
+      setIsUploading(false); // End upload regardless of outcome
     }
   };
 
@@ -80,19 +83,22 @@ export default function Upload() {
     }
 
     setIsExtracting(true);
+    setProgress(0);
+
     const url = `http://localhost:8000/extract-frames/?project_name=${projectName}&fps=${fpsValues[fpsIndex]}&video_path=${metadata.file_path}`;
     const eventSource = new EventSource(url);
 
     eventSource.onmessage = (event) => {
       const data = JSON.parse(event.data);
       if (data.progress !== undefined) {
-        setExtractionProgress(data.progress);
+        setProgress(data.progress);
       }
       if (data.message) {
-        // When extraction is complete, close the stream and show popup instead of redirecting automatically.
         eventSource.close();
         setExtractionSuccess(true);
         setIsExtracting(false);
+        setProgress(null);
+        router.push(`/converting/?project=${projectName}`);
       }
     };
 
@@ -100,133 +106,178 @@ export default function Upload() {
       console.error("Error extracting frames:", error);
       eventSource.close();
       setIsExtracting(false);
+      setProgress(null);
     };
   };
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-gradient-to-r from-gray-900 to-gray-800">
-      <div className="flex-grow flex items-center justify-center">
-      <div className="bg-gray-800 border border-gray-700 backdrop-blur-lg shadow-xl rounded-lg p-10 max-w-md w-full text-center">
-        <h1 className="text-4xl font-extrabold mb-4 text-gray-100">
-          Upload a Video for "{projectName}"
-        </h1>
+    <div className="min-h-screen bg-black text-white font-mono">
+      <header className="flex items-center px-4 py-3 border-b border-white bg-black">
+        <img
+          src="/logo-small.png"
+          alt="Logo"
+          className="h-10 w-auto mr-4"
+        />
+        <h1 className="text-xl font-bold">{projectName}</h1>
+      </header>
 
-        {!metadata ? (
-          <>
-            <div
-              className="w-full h-40 border-2 border-dashed border-gray-600 bg-gray-700 flex items-center justify-center text-gray-100 cursor-pointer rounded-lg mb-4"
-              onDrop={handleDrop}
-              onDragOver={(e) => e.preventDefault()}
-            >
-              {selectedFile ? selectedFile.name : "Drag & Drop a video file here"}
-            </div>
-
-            <input
-              type="file"
-              accept="video/*"
-              onChange={handleFileChange}
-              className="w-full p-3 mb-4 bg-gray-700 border border-gray-600 rounded-lg text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 transition"
-            />
-
-            {videoURL && (
-              <video className="w-full border rounded-lg" controls src={videoURL} />
-            )}
-
-            {uploadProgress !== null && (
-              <div className="w-full bg-gray-600 rounded-full h-4 mt-2">
-                <div
-                  className="bg-blue-500 h-4 rounded-full"
-                  style={{ width: `${uploadProgress}%` }}
-                />
-              </div>
-            )}
-
-            <button
-              onClick={handleUpload}
-              className="w-full mt-4 py-3 px-4 bg-gray-700 text-gray-100 font-semibold rounded-lg shadow-md hover:bg-gray-600 transition-all duration-300 transform hover:-translate-y-1"
-              disabled={!selectedFile}
-            >
-              Upload
-            </button>
-          </>
-        ) : (
-          <div className="mt-4 bg-gray-700 border border-gray-600 p-4 rounded-lg shadow-md text-gray-100">
-            <h2 className="text-lg font-semibold mb-2">Video Metadata</h2>
-            <div className="text-left">
-              <p>
-                <strong>File Path:</strong> {metadata.file_path}
-              </p>
-              <p>
-                <strong>Resolution:</strong> {metadata.resolution}
-              </p>
-              <p>
-                <strong>Frame Rate:</strong> {metadata.frame_rate} FPS
-              </p>
-              <p>
-                <strong>Duration:</strong> {metadata.duration} seconds
-              </p>
-            </div>
-
-            <div className="mt-4">
-              <label className="block mb-2 font-medium text-gray-100">
-                Frames per Second (FPS)
-              </label>
-              <input
-                type="range"
-                min={0}
-                max={fpsValues.length - 1}
-                step={1}
-                value={fpsIndex}
-                onChange={(e) => setFpsIndex(Number(e.target.value))}
-                className="w-full"
-                disabled={isExtracting}
-              />
-              <p className="text-center mt-1 text-gray-100">
-                {fpsValues[fpsIndex]} FPS
-              </p>
-            </div>
-
-            <button
-              onClick={handleExtractFrames}
-              disabled={isExtracting}
-              className={`mt-4 w-full py-3 px-4 bg-gray-700 text-gray-100 font-semibold rounded-lg shadow-md transition-all duration-300 transform ${
-                isExtracting ? "" : "hover:bg-gray-600 hover:-translate-y-1"
-              }`}
-            >
-              {isExtracting ? "Extracting..." : "Extract Frames"}
-            </button>
-
-            {/* Progress bar for extraction */}
-            {isExtracting && (
-              <div className="w-full bg-gray-600 rounded-full h-4 mt-2">
-                <div
-                  className="bg-blue-500 h-4 rounded-full"
-                  style={{ width: `${extractionProgress}%` }}
-                />
-              </div>
-            )}
+      <main className="flex flex-col items-center justify-center px-4 py-34">
+        <div className="w-full max-w-6xl">
+          <div className="mb-12 text-center">
+            <h2 className="text-5xl font-bold uppercase tracking-wide my-6">
+              preprocessing
+            </h2>
           </div>
-        )}
-      </div>
 
-      {/* Modal Popup for Extraction Success */}
-      {extractionSuccess && (
-        <div className="fixed inset-0 flex items-center justify-center backdrop-blur-sm">
-          <div className="bg-gray-800 border border-gray-700 rounded-lg p-8 shadow-2xl text-center">
-            <p className="text-white text-400 text-2xl font-bold mb-4">
-              Frames extracted successfully!
-            </p>
-            <button
-              onClick={() => router.push(`/converting/?project=${projectName}`)}
-              className="py-2 px-6 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-lg transition duration-300"
-            >
-              Next Page
-            </button>
+          {/* 3-column layout */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
+            {/* Upload Section */}
+            <div className="border border-white rounded-lg p-6">
+              <h3 className="text-xl font-semibold mb-4 text-center">
+                Select Video
+              </h3>
+
+              <div
+                className="w-full h-36 border-2 border-dashed border-white rounded mb-4 flex items-center justify-center text-sm cursor-pointer"
+                onDrop={handleDrop}
+                onDragOver={(e) => e.preventDefault()}
+              >
+                {selectedFile
+                  ? selectedFile.name
+                  : "Drag & Drop a video file here"}
+              </div>
+
+              <div className="mb-4">
+                <label
+                  htmlFor="videoUpload"
+                  className="block w-full border border-white py-2 rounded text-center cursor-pointer hover:bg-white hover:text-black hover:-translate-y-1 transition"
+                >
+                  Select Video File
+                </label>
+                <input
+                  id="videoUpload"
+                  type="file"
+                  accept="video/*"
+                  onChange={handleFileChange}
+                  style={{ display: "none" }}
+                />
+              </div>
+            </div>
+
+            {/* Video Preview */}
+            <div className="border border-white rounded-lg p-6 flex flex-col items-center">
+              <h3 className="text-xl font-semibold mb-4">
+                Preview & Upload
+              </h3>
+              {videoURL ? (
+                <video
+                  className="w-full border border-white rounded mb-4"
+                  controls
+                  src={videoURL}
+                />
+              ) : (
+                <p className="text-sm mt-2 text-center">No video selected.</p>
+              )}
+              {videoURL && (
+                <button
+                  onClick={handleUpload}
+                  disabled={isUploading || isExtracting || !selectedFile}
+                  className="w-full border border-white py-2 rounded cursor-pointer hover:bg-white hover:text-black hover:-translate-y-1 transition"
+                >
+                  {isUploading ? "Uploading..." : "Upload"}
+                </button>
+              )}
+            </div>
+
+            {/* Frame Extraction */}
+            <div className="border border-white rounded-lg p-6 flex flex-col items-center">
+              <h3 className="text-xl font-semibold mb-4 text-center">
+                Frame Extraction
+              </h3>
+
+              {!metadata ? (
+                <p className="text-sm mt-2 mb-4 text-center">
+                  No video uploaded.
+                </p>
+              ) : (
+                <>
+                  <div className="text-sm mb-6">
+                    <p><strong>File Path:</strong> {metadata.file_path}</p>
+                    <p><strong>Resolution:</strong> {metadata.resolution}</p>
+                    <p><strong>Frame Rate:</strong> {metadata.frame_rate} FPS</p>
+                    <p><strong>Duration:</strong> {metadata.duration} seconds</p>
+                  </div>
+
+                  <label className="block mb-1 font-semibold">
+                    Frames per Second (FPS)
+                  </label>
+                  <input
+                    type="range"
+                    min={0}
+                    max={fpsValues.length - 1}
+                    step={1}
+                    value={fpsIndex}
+                    onChange={(e) => setFpsIndex(Number(e.target.value))}
+                    disabled={isExtracting}
+                    className="w-full mb-2 fps-slider"  // added custom class "fps-slider"
+                  />
+                  <p className="text-center mb-4">
+                    {fpsValues[fpsIndex]} FPS
+                  </p>
+
+                  <style jsx>{`
+                    /* Style the slider track */
+                    input[type='range'].fps-slider {
+                      -webkit-appearance: none; /* remove default styling on webkit browsers */
+                      width: 100%;
+                      height: 8px;              /* adjust height as needed */
+                      background: white;        /* white background for the track */
+                      outline: none;
+                      border-radius: 0;         /* square corners */
+                      margin: 10px 0;
+                    }
+                                    
+                    /* Custom thumb styling for Webkit browsers */
+                    input[type='range'].fps-slider::-webkit-slider-thumb {
+                      -webkit-appearance: none;
+                      width: 16px;              /* size of the thumb */
+                      height: 16px;
+                      background: white;        /* white thumb background */
+                      border: 2px solid black;  /* border for contrast */
+                      border-radius: 0;         /* square shape */
+                      cursor: pointer;
+                      margin-top: -4px;         /* adjust to center the thumb on the track */
+                    }
+                  `}</style>
+
+                  <button
+                    onClick={handleExtractFrames}
+                    disabled={!metadata || isExtracting}
+                    className="w-full border border-white py-2 rounded cursor-pointer hover:bg-white hover:text-black hover:-translate-y-1 transition"
+                  >
+                    {isExtracting ? "Extracting..." : "Extract Frames"}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Unified Progress Bar */}
+          <div className="flex flex-col items-center justify-center mt-12">
+            <div className="w-full md:w-3/4 border border-white bg-black h-6 relative">
+              <div
+                className="h-full"
+                style={{
+                  width: `${progress || 0}%`,
+                  backgroundColor: "white",
+                }}
+              />
+            </div>
           </div>
         </div>
-      )}
-      </div>
+      </main>
+
       <BottomBar />
-    </main>
+    </div>
   );
 }

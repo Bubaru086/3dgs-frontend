@@ -14,10 +14,10 @@ export default function SplatPage() {
   const rendererRef = useRef<any>(null);
   const controlsRef = useRef<any>(null);
   const sceneRef = useRef<any>(null);
-  const keyframe1Ref = useRef<any>(null);
-  const keyframe2Ref = useRef<any>(null);
-  const defaultAnimationId = useRef<number | null>(null);
-
+  
+  // Use a single ref to hold all keyframes.
+  const keyframesRef = useRef<any[]>([]);
+  
   // Recording and UI state
   const [selectedFPS, setSelectedFPS] = useState<string>("");
   const [durationSec, setDurationSec] = useState<string>("");
@@ -35,21 +35,29 @@ export default function SplatPage() {
   const [isOverlayMinimized, setIsOverlayMinimized] = useState(true);
   const [showCenterCross, setShowCenterCross] = useState(true);
   const [showGrid, setShowGrid] = useState(false);
+  // Only show preview for the first and last keyframes.
   const [startKeyframePreview, setStartKeyframePreview] = useState("");
   const [endKeyframePreview, setEndKeyframePreview] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [rotationType, setRotationType] = useState("");
 
+  const [startRollInput, setStartRollInput] = useState("");
+  const [startRollFocused, setStartRollFocused] = useState(false);
+  const [endRollInput, setEndRollInput] = useState("");
+  const [endRollFocused, setEndRollFocused] = useState(false);
+
   // Reset rotation amounts when no rotation type is selected.
   useEffect(() => {
     if (rotationType === "") {
       setStartRoll(0);
       setEndRoll(0);
+      setStartRollInput("");
+      setEndRollInput("");
     }
   }, [rotationType]);
 
-  // Use refs to always hold the latest checkbox states.
+  // Keep refs current with UI checkbox states.
   const gridEnabledRef = useRef(showGrid);
   const crossEnabledRef = useRef(showCenterCross);
 
@@ -61,7 +69,7 @@ export default function SplatPage() {
     crossEnabledRef.current = showCenterCross;
   }, [showCenterCross]);
 
-  // The default render loop updates both the SPLAT scene and the overlay.
+  const defaultAnimationId = useRef<number | null>(null);
   const defaultFrame = () => {
     if (
       !controlsRef.current ||
@@ -100,7 +108,9 @@ export default function SplatPage() {
     controlsRef.current = controls;
 
     const pixelRatio = window.devicePixelRatio || 1;
-    renderer.setSize(window.innerWidth * pixelRatio, window.innerHeight * pixelRatio);
+    const width = containerRef.current.clientWidth;
+    const height = containerRef.current.clientHeight;
+    renderer.setSize(width * pixelRatio, height * pixelRatio);
     containerRef.current.appendChild(renderer.canvas);
 
     // Setup the overlay canvas to match container size.
@@ -129,12 +139,11 @@ export default function SplatPage() {
     } else {
       sessionStorage.removeItem("hasRefreshed");
     }
-  }, []);  
+  }, []);
 
-  // The overlay function uses the refs to always get the latest checkbox values.
+  // Update overlay based on grid and cross settings.
   const updateOverlay = () => {
-    if (recording) return; // Skip drawing overlays during video capture
-
+    if (recording) return;
     if (!overlayCanvasRef.current) return;
     const ctx = overlayCanvasRef.current.getContext("2d");
     if (!ctx) return;
@@ -142,18 +151,14 @@ export default function SplatPage() {
     const width = canvas.width;
     const height = canvas.height;
     ctx.clearRect(0, 0, width, height);
-  
-    // Draw grid if enabled.
+
     if (gridEnabledRef.current) {
-      const gridSpacing = 50; // grid spacing in pixels
+      const gridSpacing = 50;
       ctx.strokeStyle = "rgba(136,136,136,0.5)";
       ctx.lineWidth = 1;
       ctx.beginPath();
-  
       const centerX = width / 2;
       const centerY = height / 2;
-  
-      // Draw vertical grid lines: one through the center and outwards.
       for (let x = centerX; x <= width; x += gridSpacing) {
         ctx.moveTo(x, 0);
         ctx.lineTo(x, height);
@@ -162,8 +167,6 @@ export default function SplatPage() {
         ctx.moveTo(x, 0);
         ctx.lineTo(x, height);
       }
-  
-      // Draw horizontal grid lines: one through the center and outwards.
       for (let y = centerY; y <= height; y += gridSpacing) {
         ctx.moveTo(0, y);
         ctx.lineTo(width, y);
@@ -174,12 +177,10 @@ export default function SplatPage() {
       }
       ctx.stroke();
     }
-  
-    // Draw center cross if enabled.
     if (crossEnabledRef.current) {
       const centerX = width / 2;
       const centerY = height / 2;
-      const crossSize = 10; // half-length of each cross line
+      const crossSize = 10;
       ctx.strokeStyle = "rgb(255, 255, 255)";
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -206,44 +207,61 @@ export default function SplatPage() {
     });
   };
 
-  const setStartKeyframe = () => {
+  // Single button to add a keyframe.
+  // The first keyframe stores rotation; subsequent keyframes store only position.
+  const addKeyframe = () => {
     if (!cameraRef.current || !rendererRef.current) return;
-    keyframe1Ref.current = {
+    const newKeyframe: any = {
       position: { ...cameraRef.current.position },
-      orientation: cameraRef.current.rotation.clone(),
     };
-    requestAnimationFrame(() => {
-      const previewDataUrl = rendererRef.current.canvas.toDataURL("image/png");
-      setStartKeyframePreview(previewDataUrl);
-    });
-    console.log("Start keyframe set:", keyframe1Ref.current);
+    if (keyframesRef.current.length === 0) {
+      newKeyframe.orientation = cameraRef.current.rotation.clone();
+      requestAnimationFrame(() => {
+        const previewDataUrl = rendererRef.current.canvas.toDataURL("image/png");
+        setStartKeyframePreview(previewDataUrl);
+      });
+    } else {
+      // For every additional keyframe, update the "end" preview.
+      requestAnimationFrame(() => {
+        const previewDataUrl = rendererRef.current.canvas.toDataURL("image/png");
+        setEndKeyframePreview(previewDataUrl);
+      });
+    }
+    keyframesRef.current.push(newKeyframe);
+    console.log("Added keyframe:", newKeyframe, "Total keyframes:", keyframesRef.current.length);
   };
-  
-  const setEndKeyframe = () => {
-    if (!cameraRef.current || !rendererRef.current) return;
-    keyframe2Ref.current = {
-      position: { ...cameraRef.current.position },
-    };
-    requestAnimationFrame(() => {
-      const previewDataUrl = rendererRef.current.canvas.toDataURL("image/png");
-      setEndKeyframePreview(previewDataUrl);
-    });
-    console.log("End keyframe set:", keyframe2Ref.current);
+
+  // New: Reset keyframes button clears the keyframe array and previews.
+  const resetKeyframes = () => {
+    keyframesRef.current = [];
+    setStartKeyframePreview("");
+    setEndKeyframePreview("");
+    console.log("Keyframes have been reset.");
   };
 
   const lerp = (a: number, b: number, t: number) => a * (1 - t) + b * t;
 
-  const interpolateCamera = (t: number) => {
-    if (!cameraRef.current || !keyframe1Ref.current || !keyframe2Ref.current) return;
-    const startPos = keyframe1Ref.current.position;
-    const endPos = keyframe2Ref.current.position;
-    cameraRef.current.position.x = lerp(startPos.x, endPos.x, t);
-    cameraRef.current.position.y = lerp(startPos.y, endPos.y, t);
-    cameraRef.current.position.z = lerp(startPos.z, endPos.z, t);
+  // New interpolation function that goes through all keyframes.
+  const interpolateCameraThroughKeyframes = (t: number) => {
+    if (!cameraRef.current || keyframesRef.current.length < 2) return;
+    const keyframes = keyframesRef.current;
+    const numSegments = keyframes.length - 1;
+    let s = t * numSegments;
+    let segmentIndex = Math.floor(s);
+    // Clamp to the last segment if needed.
+    if (segmentIndex >= numSegments) {
+      segmentIndex = numSegments - 1;
+      s = numSegments;
+    }
+    const localT = s - segmentIndex;
+    const startKF = keyframes[segmentIndex];
+    const endKF = keyframes[segmentIndex + 1];
+    cameraRef.current.position.x = lerp(startKF.position.x, endKF.position.x, localT);
+    cameraRef.current.position.y = lerp(startKF.position.y, endKF.position.y, localT);
+    cameraRef.current.position.z = lerp(startKF.position.z, endKF.position.z, localT);
   };
 
   const recordVideo = async () => {
-    // Parse the input values
     const fps = parseInt(selectedFPS, 10);
     const duration = parseInt(durationSec, 10);
     if (isNaN(fps) || isNaN(duration)) {
@@ -252,10 +270,12 @@ export default function SplatPage() {
     }
     
     if (!rendererRef.current || !cameraRef.current) return;
-    if (!keyframe1Ref.current || !keyframe2Ref.current) {
-      alert("Please set both start and end keyframes before recording video.");
+    if (keyframesRef.current.length < 2) {
+      alert("Please set at least two keyframes before recording video.");
       return;
     }
+    // Use all keyframes.
+    const firstKeyframe = keyframesRef.current[0];
 
     const oldControlsEnabled = controlsRef.current.enabled;
     controlsRef.current.enabled = false;
@@ -271,11 +291,12 @@ export default function SplatPage() {
     const frames: Blob[] = [];
     for (let i = 0; i < computedTotalFrames; i++) {
       const t = i / (computedTotalFrames - 1);
-      interpolateCamera(t);
+      interpolateCameraThroughKeyframes(t);
       const currentRollDeg = lerp(startRoll, endRoll, t);
       const currentRollRad = currentRollDeg * (Math.PI / 180);
-      if (keyframe1Ref.current && keyframe1Ref.current.orientation && rotationType !== "") {
-        const baseOrientation = keyframe1Ref.current.orientation;
+      // Always apply rotation based on the first keyframe's orientation.
+      if (firstKeyframe && firstKeyframe.orientation && rotationType !== "") {
+        const baseOrientation = firstKeyframe.orientation;
         let axis;
         if (rotationType === "tilt") {
           axis = new SPLAT.Vector3(1, 0, 0);
@@ -284,7 +305,7 @@ export default function SplatPage() {
         } else {
           axis = new SPLAT.Vector3(0, 0, 1);
         }
-        const rollOffsetQuat = SPLAT.Quaternion.FromAxisAngle(axis, currentRollRad);        
+        const rollOffsetQuat = SPLAT.Quaternion.FromAxisAngle(axis, currentRollRad);
         cameraRef.current.rotation = baseOrientation.multiply(rollOffsetQuat);
       }
       rendererRef.current.render(sceneRef.current, cameraRef.current);
@@ -299,10 +320,10 @@ export default function SplatPage() {
       setCurrentFrame(i + 1);
     }
 
-    if (keyframe1Ref.current) {
-      cameraRef.current.rotation = keyframe1Ref.current.orientation;
+    // Restore original camera rotation.
+    if (firstKeyframe && firstKeyframe.orientation) {
+      cameraRef.current.rotation = firstKeyframe.orientation;
     }
-
     controlsRef.current.enabled = oldControlsEnabled;
     defaultFrame();
     setRecording(false);
@@ -311,6 +332,8 @@ export default function SplatPage() {
     // Reset rotation amounts after recording.
     setStartRoll(0);
     setEndRoll(0);
+    setStartRollInput("");
+    setEndRollInput("");
 
     const formData = new FormData();
     formData.append("project_name", projectName);
@@ -334,47 +357,46 @@ export default function SplatPage() {
     const videoUrl = URL.createObjectURL(videoBlob);
     const a = document.createElement("a");
     a.href = videoUrl;
-    a.download = "scene_video.mp4";
+    a.download = "scene.mp4";
     a.click();
     URL.revokeObjectURL(videoUrl);
   };
 
   return (
-    <main className="min-h-screen bg-gradient-to-r from-gray-900 to-gray-800 relative">
-      <div className="flex-grow flex items-center justify-center">
-      <div ref={containerRef} className="w-full h-full relative">
-        {/* Overlay canvas */}
-        <canvas
-          ref={overlayCanvasRef}
-          className="absolute top-0 left-0 pointer-events-none"
-          style={{ width: "100%", height: "100%", display: recording ? "none" : "block" }}
-        />
-        {isLoading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-75">
-            <div className="bg-gray-800 border border-gray-700 backdrop-blur-lg shadow-xl rounded-lg p-4">
-              <p className="text-gray-100">Loading... {Math.round(loadingProgress * 100)}%</p>
-              <progress value={loadingProgress * 100} max="100" className="w-full"></progress>
+    <main className="h-screen bg-black text-white font-mono flex flex-col relative">
+      {/* Header */}
+      <header className="flex items-center px-4 py-3 border-b border-white bg-black">
+        <img src="/logo-small.png" alt="Logo" className="h-10 w-auto mr-4" />
+        <h1 className="text-xl font-bold">{projectName}</h1>
+      </header>
+      <div className="flex flex-1 overflow-hidden">
+        {/* Sidebar controls */}
+        <aside className="sidebar w-1/5 border-r border-white bg-black pt-4 pb-18 h-full overflow-y-auto flex flex-col">
+          <div className="flex-1">
+            <div className="text-center">
+              <h2 className="text-5xl font-bold uppercase tracking-wide my-6">
+                render
+              </h2>
             </div>
-          </div>
-        )}
-      </div>
-      <div className="absolute top-10 left-10 z-50 flex flex-col gap-4">
-        {/* Box 1: Render */}
-        <div className="p-4 bg-gray-800 border border-gray-700 backdrop-blur-lg shadow-xl rounded-lg flex flex-col gap-2">
-          <div
-            className="flex items-center justify-between p-2 cursor-pointer"
-            onClick={() => setIsActionMinimized(!isActionMinimized)}
-          >
-            <h2 className="text-gray-100 font-bold text-lg">Render</h2>
-            <span className="text-gray-100">{isActionMinimized ? "+" : "–"}</span>
-          </div>
-          {!isActionMinimized && (
-            <>
-              {/* FPS on the left and Duration on the right */}
-              <div className="flex w-full justify-between gap-2">
+            {/* Render Control Box */}
+            <div className="p-4 flex flex-col gap-2 mb-4">
+              <button
+                onClick={takePhoto}
+                className="w-full py-3 px-4 mb-4 font-semibold border border-white rounded cursor-pointer hover:bg-white hover:text-black hover:-translate-y-1 transition"
+                disabled={recording || isProcessing}
+              >
+                Take Photo
+              </button>
+              <div className="flex w-full gap-2">
                 <input
                   type="text"
-                  value={fpsFocused ? selectedFPS : selectedFPS ? `${selectedFPS}fps` : ""}
+                  value={
+                    fpsFocused
+                      ? selectedFPS
+                      : selectedFPS
+                      ? `${selectedFPS} fps`
+                      : ""
+                  }
                   onFocus={() => setFPSFocused(true)}
                   onBlur={() => setFPSFocused(false)}
                   onChange={(e) => {
@@ -383,12 +405,18 @@ export default function SplatPage() {
                     setSelectedFPS(numeric);
                   }}
                   placeholder="FPS"
-                  className="bg-gray-700 text-gray-100 p-2 rounded w-20"
+                  className="border border-white text-center p-2 rounded w-full"
                   disabled={recording || isProcessing}
                 />
                 <input
                   type="text"
-                  value={durationFocused ? durationSec : durationSec ? `${durationSec}s` : ""}
+                  value={
+                    durationFocused
+                      ? durationSec
+                      : durationSec
+                      ? `${durationSec} sec`
+                      : ""
+                  }
                   onFocus={() => setDurationFocused(true)}
                   onBlur={() => setDurationFocused(false)}
                   onChange={(e) => {
@@ -396,228 +424,336 @@ export default function SplatPage() {
                     const numeric = val.replace(/[^\d]/g, "");
                     setDurationSec(numeric);
                   }}
-                  placeholder="Duration"
-                  className="bg-gray-700 text-gray-100 p-2 rounded w-20"
+                  placeholder="Duration (s)"
+                  className="border border-white text-center p-2 rounded w-full"
                   disabled={recording || isProcessing}
                 />
               </div>
+              {/* Single keyframe button */}
               <button
-                onClick={takePhoto}
-                className="w-full py-3 px-4 bg-gray-700 text-gray-100 font-semibold rounded-lg shadow-md hover:bg-gray-600 transition-all duration-300 transform hover:-translate-y-1"
+                onClick={addKeyframe}
+                className="w-full py-2 px-4 font-semibold border border-white rounded cursor-pointer hover:bg-white hover:text-black transition"
                 disabled={recording || isProcessing}
               >
-                Take Photo
+                ■ Set Keyframe ■
               </button>
+              {/* Reset keyframes button */}
               <button
-                onClick={setStartKeyframe}
-                className="w-full py-3 px-4 bg-gray-700 text-gray-100 font-semibold rounded-lg shadow-md hover:bg-gray-600 transition-all duration-300 transform hover:-translate-y-1"
+                onClick={resetKeyframes}
+                className="w-full py-2 px-4 font-semibold border border-white rounded cursor-pointer hover:bg-white hover:text-black transition"
                 disabled={recording || isProcessing}
               >
-                Set Start Keyframe
-              </button>
-              <button
-                onClick={setEndKeyframe}
-                className="w-full py-3 px-4 bg-gray-700 text-gray-100 font-semibold rounded-lg shadow-md hover:bg-gray-600 transition-all duration-300 transform hover:-translate-y-1"
-                disabled={recording || isProcessing}
-              >
-                Set End Keyframe
+                ✖ Reset Keyframes ✖
               </button>
               <button
                 onClick={recordVideo}
-                className="w-full py-3 px-4 bg-green-700 text-gray-100 font-semibold rounded-lg shadow-md hover:bg-green-600 transition-all duration-300 transform hover:-translate-y-1"
+                className="w-full py-3 px-4 my-4 font-semibold border border-white rounded cursor-pointer hover:bg-white hover:text-black hover:-translate-y-1 transition"
                 disabled={recording || isProcessing}
               >
                 Record Video
               </button>
+              {/* Show only first and last keyframe previews */}
               {(startKeyframePreview || endKeyframePreview) && (
-                <div className="flex gap-4 mt-2">
+                <div className="flex gap-4 p-2">
                   {startKeyframePreview && (
-                    <div className="w-24 h-24 border border-gray-700 rounded-lg overflow-hidden">
+                    <div className="w-full h-24 border border-white p-1 rounded-lg overflow-hidden">
                       <img
                         src={startKeyframePreview}
-                        alt="Start Keyframe Preview"
-                        className="w-full h-full object-cover"
+                        alt="First Keyframe Preview"
+                        className="w-full h-full object-cover rounded-lg"
                       />
                     </div>
                   )}
                   {endKeyframePreview && (
-                    <div className="w-24 h-24 border border-gray-700 rounded-lg overflow-hidden">
+                    <div className="w-full h-24 border border-white p-1 rounded-lg overflow-hidden">
                       <img
                         src={endKeyframePreview}
-                        alt="End Keyframe Preview"
-                        className="w-full h-full object-cover"
+                        alt="Last Keyframe Preview"
+                        className="w-full h-full object-cover rounded-lg"
                       />
                     </div>
                   )}
                 </div>
               )}
-            </>
-          )}
-        </div>
-        
-        {/* Box 2: Rotation Options */}
-        <div className="p-4 bg-gray-800 border border-gray-700 backdrop-blur-lg shadow-xl rounded-lg flex flex-col gap-4">
-          <div
-            className="flex items-center justify-between p-2 cursor-pointer"
-            onClick={() => setIsRotationMinimized(!isRotationMinimized)}
-          >
-            <h2 className="text-gray-100 font-bold text-lg">Rotation</h2>
-            <span className="text-gray-100">{isRotationMinimized ? "+" : "–"}</span>
-          </div>
-          {!isRotationMinimized && (
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center gap-2">
-                <label className="text-gray-100">
-                  <input
-                    type="checkbox"
-                    checked={rotationType === "tilt"}
-                    onChange={(e) =>
-                      setRotationType(e.target.checked ? "tilt" : "")
-                    }
-                    disabled={recording || isProcessing}
-                  />
-                  Tilt
-                </label>
-                <label className="text-gray-100">
-                  <input
-                    type="checkbox"
-                    checked={rotationType === "turn"}
-                    onChange={(e) =>
-                      setRotationType(e.target.checked ? "turn" : "")
-                    }
-                    disabled={recording || isProcessing}
-                  />
-                  Turn
-                </label>
-                <label className="text-gray-100">
-                  <input
-                    type="checkbox"
-                    checked={rotationType === "roll"}
-                    onChange={(e) =>
-                      setRotationType(e.target.checked ? "roll" : "")
-                    }
-                    disabled={recording || isProcessing}
-                  />
-                  Roll
-                </label>
+            </div>
+            
+            {/* Rotation Options Box */}
+            <div className="p-4 border-y border-white flex flex-col gap-4 mb-4">
+              <div
+                className="flex items-center justify-between p-2 cursor-pointer"
+                onClick={() => {
+                  setIsRotationMinimized(!isRotationMinimized);
+                  setRotationType("");
+                }}
+              >
+                <h2 className="text-gray-100 font-bold text-lg">Rotations</h2>
+                <span className="text-gray-100">{isRotationMinimized ? "+" : "–"}</span>
               </div>
-              {rotationType !== "" && (
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-center gap-2">
-                    <label className="text-gray-100">Start Roll (deg):</label>
+              {!isRotationMinimized && (
+                <div className="flex flex-col gap-2 p-4">
+                  {/* Toggle Buttons for Rotation Type */}
+                  <div className="flex gap-8 mb-4">
+                    <button
+                      onClick={() =>
+                        setRotationType(rotationType === "tilt" ? "" : "tilt")
+                      }
+                      className={`w-1/3 py-2 px-4 font-semibold border border-white rounded cursor-pointer hover:-translate-y-1 transition ${
+                        rotationType === "tilt"
+                          ? "bg-white text-black"
+                          : "bg-black text-white"
+                      }`}
+                      disabled={recording || isProcessing}
+                    >
+                      Tilt
+                    </button>
+                    <button
+                      onClick={() =>
+                        setRotationType(rotationType === "turn" ? "" : "turn")
+                      }
+                      className={`w-1/3 py-2 px-4 font-semibold border border-white rounded cursor-pointer hover:-translate-y-1 transition ${
+                        rotationType === "turn"
+                          ? "bg-white text-black"
+                          : "bg-black text-white"
+                      }`}
+                      disabled={recording || isProcessing}
+                    >
+                      Turn
+                    </button>
+                    <button
+                      onClick={() =>
+                        setRotationType(rotationType === "roll" ? "" : "roll")
+                      }
+                      className={`w-1/3 py-2 px-4 font-semibold border border-white rounded cursor-pointer hover:-translate-y-1 transition ${
+                        rotationType === "roll"
+                          ? "bg-white text-black"
+                          : "bg-black text-white"
+                      }`}
+                      disabled={recording || isProcessing}
+                    >
+                      Roll
+                    </button>
+                  </div>
+                  {/* Sliders for Start and End Roll */}
+                  <div className="flex flex-col gap-2 py-4">
                     <input
-                      type="number"
+                      type="range"
+                      min="-180"
+                      max="180"
                       value={startRoll}
-                      onChange={(e) =>
-                        setStartRoll(parseFloat(e.target.value))
-                      }
-                      className="bg-gray-700 text-gray-100 p-2 rounded w-20"
-                      disabled={recording || isProcessing}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value);
+                        setStartRoll(val);
+                        setStartRollInput(val.toString());
+                      }}
+                      className="w-full fps-slider fps-slider-start"
+                      disabled={!rotationType || recording || isProcessing}
                     />
-                  </div>
-                  <input
-                    type="range"
-                    min="-360"
-                    max="360"
-                    value={startRoll}
-                    onChange={(e) => setStartRoll(parseFloat(e.target.value))}
-                    className="w-full"
-                    disabled={recording || isProcessing}
-                  />
-                  <div className="flex items-center gap-2">
-                    <label className="text-gray-100">End Roll (deg):</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={
+                          startRollFocused
+                            ? startRollInput
+                            : startRollInput
+                              ? `${startRollInput}°`
+                              : ""
+                        }
+                        onFocus={() => setStartRollFocused(true)}
+                        onBlur={() => setStartRollFocused(false)}
+                        onChange={(e) => {
+                          // Allow numbers, a dot, and the minus sign.
+                          const val = e.target.value.replace(/[^0-9.\-]/g, "");
+                          setStartRollInput(val);
+                          const parsed = parseFloat(val);
+                          if (!isNaN(parsed)) {
+                            setStartRoll(parsed);
+                          } else {
+                            setStartRoll(0);
+                          }
+                        }}
+                        placeholder="Start (°)"
+                        className="p-2 border border-white disabled:border-gray-500 rounded w-full text-center"
+                        disabled={!rotationType || recording || isProcessing}
+                      />
+                      <label className="px-4">-</label>
+                      <input
+                        type="text"
+                        value={
+                          endRollFocused
+                            ? endRollInput
+                            : endRollInput
+                              ? `${endRollInput}°`
+                              : ""
+                        }
+                        onFocus={() => setEndRollFocused(true)}
+                        onBlur={() => setEndRollFocused(false)}
+                        onChange={(e) => {
+                          const val = e.target.value.replace(/[^0-9.\-]/g, "");
+                          setEndRollInput(val);
+                          const parsed = parseFloat(val);
+                          if (!isNaN(parsed)) {
+                            setEndRoll(parsed);
+                          } else {
+                            setEndRoll(0);
+                          }
+                        }}
+                        placeholder="End (°)"
+                        className="p-2 border border-white disabled:border-gray-500 rounded w-full text-center"
+                        disabled={!rotationType || recording || isProcessing}
+                      />
+                    </div>
                     <input
-                      type="number"
+                      type="range"
+                      min="-180"
+                      max="180"
                       value={endRoll}
-                      onChange={(e) =>
-                        setEndRoll(parseFloat(e.target.value))
-                      }
-                      className="bg-gray-700 text-gray-100 p-2 rounded w-20"
-                      disabled={recording || isProcessing}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value);
+                        setEndRoll(val);
+                        setEndRollInput(val.toString());
+                      }}
+                      className="w-full fps-slider fps-slider-end"
+                      disabled={!rotationType || recording || isProcessing}
                     />
                   </div>
-                  <input
-                    type="range"
-                    min="-360"
-                    max="360"
-                    value={endRoll}
-                    onChange={(e) => setEndRoll(parseFloat(e.target.value))}
-                    className="w-full"
-                    disabled={recording || isProcessing}
-                  />
                 </div>
               )}
             </div>
-          )}
-        </div>
-
-        {/* Box 3: Overlay Options */}
-        <div className="p-4 bg-gray-800 border border-gray-700 backdrop-blur-lg shadow-xl rounded-lg flex flex-col gap-4">
-          <div
-            className="flex items-center justify-between p-2 cursor-pointer"
-            onClick={() => setIsOverlayMinimized(!isOverlayMinimized)}
-          >
-            <h2 className="text-gray-100 font-bold text-lg">Overlay</h2>
-            <span className="text-gray-100">{isOverlayMinimized ? "+" : "–"}</span>
           </div>
-          {!isOverlayMinimized && (
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center gap-2">
-                <label className="text-gray-100">Center Cross:</label>
-                <input
-                  type="checkbox"
-                  checked={showCenterCross}
-                  onChange={(e) => setShowCenterCross(e.target.checked)}
-                  disabled={recording || isProcessing}
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <label className="text-gray-100">Grid:</label>
-                <input
-                  type="checkbox"
-                  checked={showGrid}
-                  onChange={(e) => setShowGrid(e.target.checked)}
-                  disabled={recording || isProcessing}
-                />
-              </div>
+          
+          {/* Overlay Options Box */}
+          <div className="p-4 mt-auto">
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowCenterCross(!showCenterCross)}
+                className={`w-1/2 py-2 px-4 font-semibold border border-white rounded cursor-pointer hover:-translate-y-1 transition ${
+                  showCenterCross ? "bg-white text-black" : "bg-black text-white"
+                }`}
+                disabled={recording || isProcessing}
+              >
+                Crosshair
+              </button>
+              <button
+                onClick={() => setShowGrid(!showGrid)}
+                className={`w-1/2 py-2 px-4 font-semibold border border-white rounded cursor-pointer hover:-translate-y-1 transition ${
+                  showGrid ? "bg-white text-black" : "bg-black text-white"
+                }`}
+                disabled={recording || isProcessing}
+              >
+                Grid
+              </button>
             </div>
-          )}
-        </div>
-      </div>
-      {recording && (
-        <div className="absolute bottom-4 left-4 right-4 p-4 bg-gray-800 border border-gray-700 backdrop-blur-lg shadow-xl rounded-lg">
-          <div className="w-full bg-gray-200 rounded-full h-2">
-            <div
-              className="bg-blue-600 h-2 rounded-full"
-              style={{ width: `${(currentFrame / totalFrames) * 100}%` }}
-            ></div>
           </div>
-          <p className="text-gray-100 text-sm mt-1">
-            Processing frame {currentFrame} of {totalFrames}
-          </p>
-        </div>
-      )}
-      {isProcessing && (
-        <div className="absolute bottom-4 left-4 right-4 p-4 bg-gray-800 border border-gray-700 backdrop-blur-lg shadow-xl rounded-lg text-center">
-          <p className="text-gray-100 text-sm">Processing video, please wait...</p>
-        </div>
-      )}
-      {!recording && (startRoll !== 0 || endRoll !== 0) && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <svg width="150" height="150" viewBox="0 0 150 150">
-            <circle cx="75" cy="75" r="70" stroke="white" strokeWidth="2" fill="none" strokeOpacity="0.25" />
-            <circle cx="75" cy="75" r="3" fill="red" fillOpacity="0.75" />
-            <line x1="75" y1="75" x2="75" y2="15" stroke="red" strokeWidth="2" strokeOpacity="0.75"
-              transform={`rotate(${startRoll}, 75, 75)`}
-            />
-            <line x1="75" y1="75" x2="75" y2="15" stroke="red" strokeWidth="2" strokeOpacity="0.75"
-              transform={`rotate(${endRoll}, 75, 75)`}
-            />
-          </svg>
-        </div>
-      )}
+        </aside>
+
+        <style jsx>{`
+          .sidebar::-webkit-scrollbar {
+            display: none;
+          }
+          .sidebar {
+            -ms-overflow-style: none; /* IE and Edge */
+          }
+        `}</style>
+
+        <style jsx>{`
+          /* Common slider track styling */
+          input[type='range'].fps-slider {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 8px;
+            background: white;
+            outline: none;
+            border-radius: 0;
+            margin: 10px 0;
+          }
+        
+          /* Start slider thumb styling (Webkit) */
+          input[type='range'].fps-slider-start::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            background: white;
+            border: 2px solid black;
+            border-radius: 0;
+            cursor: pointer;
+            margin-top: -4px;
+          }
+        
+          /* End slider thumb styling (Webkit) */
+          input[type='range'].fps-slider-end::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            background: white;
+            border: 2px solid black;
+            border-radius: 0;
+            cursor: pointer;
+            margin-top: 4px;
+          }
+        
+          /* Disabled slider track styling */
+          input[type='range'].fps-slider:disabled {
+            background: gray;
+          }
+        `}</style>
+
+        {/* Right section: Rendering canvas and overlays */}
+        <section className="w-4/5 relative">
+          <div className="relative w-full" style={{ aspectRatio: "16/9" }}>
+            <div ref={containerRef} className="w-full h-full relative">
+              <canvas
+                ref={overlayCanvasRef}
+                className="absolute top-0 left-0 pointer-events-none"
+                style={{ width: "100%", height: "100%", display: recording ? "none" : "block" }}
+              />
+              {isLoading && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="w-16 h-16 bg-white animate-spin"></div>
+                </div>
+              )}
+            </div>
+            {(recording || isProcessing) && (
+              <div className="absolute bottom-20 left-4 right-4 flex flex-col items-center justify-center">
+                <div className="w-full md:w-3/4 border border-white bg-black h-6 relative">
+                  <div
+                    className="h-full bg-white"
+                    style={{ width: `${(currentFrame / totalFrames) * 100}%` }}
+                  ></div>
+                </div>
+                <p className="text-white text-sm mt-1 text-center">
+                  {recording
+                    ? `Processing frame ${currentFrame} of ${totalFrames}`
+                    : "Processing video, please wait..."}
+                </p>
+              </div>
+            )}
+            {!recording && rotationType && false && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <svg width="150" height="150" viewBox="0 0 150 150">
+                  <rect x="72" y="72" width="6" height="6" fill="white" />
+                  <rect 
+                    x="74" 
+                    y="15" 
+                    width="2" 
+                    height="60" 
+                    fill="white" 
+                    transform={`rotate(${startRoll}, 75, 75)`} 
+                  />
+                  <rect 
+                    x="74" 
+                    y="15" 
+                    width="2" 
+                    height="60" 
+                    fill="white" 
+                    transform={`rotate(${endRoll}, 75, 75)`} 
+                  />
+                </svg>
+              </div>
+            )}
+          </div>
+        </section>
       </div>
       <BottomBar />
     </main>
-  );  
+  );
 }
